@@ -1,0 +1,127 @@
+{
+  "project_info": {
+    "project_number": "404956717895",
+    "firebase_url": "https://merco-242-default-rtdb.firebaseio.com",
+    "project_id": "merco-242",
+    "storage_bucket": "merco-242.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:404956717895:android:010aa6eb55b2ce144d6262",
+        "android_client_info": {
+          "package_name": "com.example.merco1"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD83lRYUk2HN8LslVxNA998TOHF-fQkPO4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:404956717895:android:efe79e6eb0fafe714d6262",
+        "android_client_info": {
+          "package_name": "com.example.merco242"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD83lRYUk2HN8LslVxNA998TOHF-fQkPO4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:404956717895:android:fe6de4aba9e96c804d6262",
+        "android_client_info": {
+          "package_name": "com.example.merco_242"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD83lRYUk2HN8LslVxNA998TOHF-fQkPO4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:404956717895:android:0b7d54a4b13745824d6262",
+        "android_client_info": {
+          "package_name": "com.merco242"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD83lRYUk2HN8LslVxNA998TOHF-fQkPO4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "404956717895-fqqeqo780ds96e83mr6dq48qd9dop2c1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
