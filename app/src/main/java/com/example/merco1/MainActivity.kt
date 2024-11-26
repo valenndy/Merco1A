@@ -179,8 +179,6 @@ fun UserSelectionScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(text = "O inicia sesión con:", color = Color.Black, fontSize = 16.sp)
-
     }
 }
 
@@ -276,8 +274,12 @@ fun LoginScreen(
 
 
 
+/*
 
+Recordar que al momento de registrarse se cierra la app porque no se dirige
+a una pantalla que no existe debe dirigirse a signupScreen!!!!
 
+*/
 @Composable
 fun SignupScreen(navController: NavController, signupViewModel: SignupViewModel = viewModel()) {
     val authState by signupViewModel.authState.observeAsState()
@@ -328,7 +330,14 @@ fun SignupScreen(navController: NavController, signupViewModel: SignupViewModel 
         when (authState) {
             1 -> CircularProgressIndicator()
             2 -> Text(text = "Error occurred", color = Color.Red)
-            3 -> navController.navigate("profile")
+            3 -> {
+                // Navegar dependiendo del tipo de usuario registrado
+                if (selectedUserType == "buyer") {
+                    navController.navigate("buyer_dashboard")
+                } else if (selectedUserType == "seller") {
+                    navController.navigate("seller_dashboard")
+                }
+            }
         }
     }
 }
@@ -518,7 +527,7 @@ fun CreateProductScreen(navController: NavController, sellerId: String) {
     }
 
     // Cargar categorías desde Firestore
-    LaunchedEffect(Unit) {
+    LaunchedEffect(true) {
         val db = Firebase.firestore
         try {
             val snapshot = db.collection("categories").get().await()
