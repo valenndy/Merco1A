@@ -4,13 +4,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -40,6 +45,9 @@ import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -95,15 +103,21 @@ fun App() {
             LoginScreen(navController, initialUserType = userType)
         }
         composable("signup") { SignupScreen(navController) }
-        //composable("profile") { ProfileScreen(navController) }
         composable("buyer_dashboard") { BuyerDashboard(navController) }
         composable("seller_dashboard") { SellerDashboard(navController) }
-        //v1
         composable("create_product/{sellerId}") { backStackEntry ->
             val sellerId = backStackEntry.arguments?.getString("sellerId") ?: ""
             CreateProductScreen(navController, sellerId)
         }
+        composable("reserve_product/{productId}/{buyerId}") { backStackEntry ->
+            val productId = backStackEntry.arguments?.getString("productId") ?: ""
+            val buyerId = backStackEntry.arguments?.getString("buyerId") ?: ""
+            ReserveProductScreen(navController = navController, productId = productId, buyerId = buyerId)
+        }
     }
+
+
+
 
 }
 
@@ -347,34 +361,112 @@ fun SignupScreen(navController: NavController, signupViewModel: SignupViewModel 
 @Composable
 fun BuyerDashboard(navController: NavController) {
     val context = LocalContext.current
-    val userId = Firebase.auth.currentUser?.uid
-    var buyerName by remember { mutableStateOf("") }
-    var buyerEmail by remember { mutableStateOf("") }
+    val products = remember { mutableStateListOf<Map<String, Any>>() }
+
+    // Cargar productos desde Firestore
+    LaunchedEffect(Unit) {
+        Firebase.firestore.collection("products").get()
+            .addOnSuccessListener { result ->
+                products.clear()
+                for (document in result) {
+                    document.data.let { products.add(it) }
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(context, "Error al cargar productos", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("Productos Disponibles", style = MaterialTheme.typography.headlineSmall)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(products) { product ->
+                ProductCard(product, navController)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                Firebase.auth.signOut()
+                navController.navigate("login")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Cerrar Sesión")
+        }
+    }
+}
+
+@Composable
+fun ProductCard(product: Map<String, Any>, navController: NavController) {
+    val name = product["name"] as? String ?: "Sin nombre"
+    val price = product["price"] as? Double ?: 0.0
+    val quantity = product["quantity"] as? Int ?: 0
+    val description = product["description"] as? String ?: "Sin descripción"
+    val productId = product["id"] as? String ?: ""
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(name, style = MaterialTheme.typography.titleMedium)
+            Text("Precio: $price", style = MaterialTheme.typography.bodyMedium)
+            Text("Cantidad: $quantity", style = MaterialTheme.typography.bodyMedium)
+            Text(description, style = MaterialTheme.typography.bodySmall)
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    // Navegar a la pantalla de reservación
+                    navController.navigate("reserve_product/$productId/${Firebase.auth.currentUser?.uid}")
+                },
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Reservar")
+            }
+        }
+    }
+}
+
+
+
+@Composable
+fun SellerDashboard(navController: NavController) {
+    val sellerId = Firebase.auth.currentUser?.uid
+    var sellerName by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
 
-    LaunchedEffect(userId) {
-        if (userId != null) {
+    LaunchedEffect(sellerId) {
+        if (sellerId != null) {
             try {
                 val snapshot = Firebase.firestore
-                    .collection("buyers")
-                    .document(userId)
+                    .collection("sellers")
+                    .document(sellerId)
                     .get()
                     .await()
                 val data = snapshot.data
-                if (data != null) {
-                    buyerName = data["name"] as? String ?: "Sin nombre"
-                    buyerEmail = data["email"] as? String ?: "Sin correo"
-                } else {
-                    errorMessage = "No se encontró información del comprador."
-                }
+                sellerName = data?.get("name") as? String ?: "Sin nombre"
             } catch (e: Exception) {
-                errorMessage = "Error al cargar datos: ${e.message}"
+                errorMessage = "Error al cargar datos del vendedor: ${e.message}"
             } finally {
                 isLoading = false
             }
         } else {
-            errorMessage = "Usuario no autenticado."
+            errorMessage = "Usuario no autenticado"
             isLoading = false
         }
     }
@@ -386,202 +478,231 @@ fun BuyerDashboard(navController: NavController) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        when {
-            isLoading -> {
-                CircularProgressIndicator()
+        if (isLoading) {
+            CircularProgressIndicator()
+        } else if (errorMessage.isNotEmpty()) {
+            Text(errorMessage, color = Color.Red)
+        } else {
+            Text("Bienvenido, $sellerName", style = MaterialTheme.typography.headlineSmall)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { navController.navigate("create_product/${Firebase.auth.currentUser?.uid}") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Crear Producto")
             }
-            errorMessage.isNotEmpty() -> {
-                Text(text = errorMessage, color = Color.Red)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (!sellerId.isNullOrEmpty()) {
+                Button(
+                    onClick = {
+                        navController.navigate("seller_reservations/$sellerId")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Ver Reservaciones")
+                }
+            } else {
+                Text("Usuario no autenticado", color = Color.Red)
             }
-            else -> {
-                // Mostrar información del comprador
-                Text(
-                    text = "Welcome, $buyerName",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Email: $buyerEmail",
-                    style = MaterialTheme.typography.bodyLarge
-                )
+
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    Firebase.auth.signOut()
+                    navController.navigate("login")
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cerrar Sesión")
+            }
+        }
+    }
+}
+
+@Composable
+fun SellerReservationsScreen(navController: NavController, sellerId: String) {
+    val context = LocalContext.current
+    val reservations = remember { mutableStateListOf<Map<String, Any>>() }
+
+    LaunchedEffect(sellerId) {
+        if (sellerId.isNotBlank()) {
+            Firebase.firestore.collection("reservations")
+                .whereEqualTo("seller_id", sellerId)
+                .get()
+                .addOnSuccessListener { result ->
+                    reservations.clear()
+                    for (document in result) {
+                        reservations.add(document.data)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e("FirestoreError", "Error al cargar reservaciones: ${e.message}")
+                    Toast.makeText(context, "Error al cargar reservaciones", Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            Toast.makeText(context, "Error: ID del vendedor no válido", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("Reservaciones de Productos", style = MaterialTheme.typography.headlineSmall)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (reservations.isEmpty()) {
+            Text("No hay reservaciones disponibles", style = MaterialTheme.typography.bodyLarge)
+        } else {
+            LazyColumn {
+                items(reservations) { reservation ->
+                    ReservationCard(reservation)
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(onClick = {
-            Firebase.auth.signOut()
-            navController.navigate("login")
-        }) {
-            Text(text = "Log Out")
+        Button(
+            onClick = { navController.navigate("seller_dashboard") },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Volver al Panel")
         }
     }
 }
 
 
 @Composable
-fun SellerDashboard(navController: NavController) {
-    val context = LocalContext.current
-    val userId = Firebase.auth.currentUser?.uid
-    var sellerName by remember { mutableStateOf("") }
-    var sellerEmail by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf("") }
-
-    // Cargar datos del vendedor desde Firestore
-    LaunchedEffect(userId) {
-        if (userId != null) {
-            try {
-                val snapshot = Firebase.firestore
-                    .collection("sellers")
-                    .document(userId)
-                    .get()
-                    .await()
-                val data = snapshot.data
-                if (data != null) {
-                    sellerName = data["name"] as? String ?: "Sin nombre"
-                    sellerEmail = data["email"] as? String ?: "Sin correo"
-                } else {
-                    errorMessage = "No se encontró información del vendedor."
-                }
-            } catch (e: Exception) {
-                errorMessage = "Error al cargar datos: ${e.message}"
-            } finally {
-                isLoading = false
-            }
-        } else {
-            errorMessage = "Usuario no autenticado."
-            isLoading = false
-        }
+fun ReservationCard(reservation: Map<String, Any>) {
+    val productId = reservation["product_id"] as? String ?: "Sin ID"
+    val buyerId = reservation["buyer_id"] as? String ?: "Sin ID"
+    val reservedAt = reservation["reserved_at"] as? Long ?: 0L
+    val date = if (reservedAt > 0L) {
+        java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(java.util.Date(reservedAt))
+    } else {
+        "Fecha no disponible"
     }
 
-    Column(
+    Card(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        when {
-            isLoading -> {
-                CircularProgressIndicator()
-            }
-            errorMessage.isNotEmpty() -> {
-                Text(text = errorMessage, color = Color.Red)
-            }
-            else -> {
-                // Mostrar información del vendedor
-                Text(
-                    text = "Welcome, $sellerName",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Email: $sellerEmail",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(onClick = {
-            Firebase.auth.signOut()
-            navController.navigate("login")
-        }) {
-            Text(text = "Log Out")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Botón para crear un producto
-        Button(onClick = {
-            navController.navigate("create_product/${Firebase.auth.currentUser?.uid}")
-        }) {
-            Text("Crear Producto")
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Producto ID: $productId", style = MaterialTheme.typography.bodyMedium)
+            Text("Reservado por: $buyerId", style = MaterialTheme.typography.bodyMedium)
+            Text("Fecha: $date", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
+
+
+
+
+@Composable
+fun CategoryDropdownMenu(
+    categories: List<String>,
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit
+) {
+    // Estado para controlar si el menú desplegable está expandido
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Botón para abrir el menú
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { isExpanded = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = if (selectedCategory.isEmpty()) "Seleccionar Categoría" else selectedCategory)
+        }
+
+        // Menú desplegable
+        DropdownMenu(
+            expanded = isExpanded,
+            onDismissRequest = { isExpanded = false }
+        ) {
+            categories.forEach { category ->
+                DropdownMenuItem(
+                    onClick = {
+                        onCategorySelected(category) // Callback para actualizar la categoría
+                        isExpanded = false // Cierra el menú
+                    },
+                    text = { Text(category) }
+                )
+            }
+        }
+    }
+}
+
 
 //v1
 @Composable
 fun CreateProductScreen(navController: NavController, sellerId: String) {
     val context = LocalContext.current
 
-    // Variables de estado para los campos
+    // Variables de estado
     var productName by remember { mutableStateOf("") }
     var productPrice by remember { mutableStateOf("") }
     var productQuantity by remember { mutableStateOf("") }
     var productDescription by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("") }
-    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-
-    // Lista de categorías (estado dinámico)
     val categories = remember { mutableStateListOf<String>() }
-
-    // Selector de imagen
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        selectedImageUri = uri
-    }
+    var isLoading by remember { mutableStateOf(false) }
 
     // Cargar categorías desde Firestore
-    LaunchedEffect(true) {
-        val db = Firebase.firestore
+    LaunchedEffect(Unit) {
         try {
-            val snapshot = db.collection("categories").get().await()
+            val snapshot = Firebase.firestore.collection("categories").get().await()
             categories.clear()
             categories.addAll(snapshot.documents.map { it.getString("name") ?: "" })
         } catch (e: Exception) {
-            Toast.makeText(context, "Error cargando categorías: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("FirestoreError", "Error al cargar categorías: ${e.message}")
+            Toast.makeText(context, "Error al cargar categorías", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Diseño de la pantalla
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .verticalScroll(rememberScrollState()), // Habilita desplazamiento
-        verticalArrangement = Arrangement.Top,
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Título
         Text("Crear Producto", style = MaterialTheme.typography.headlineSmall)
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Campos del formulario
         TextField(
             value = productName,
             onValueChange = { productName = it },
             label = { Text("Nombre del producto") },
             modifier = Modifier.fillMaxWidth()
         )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         TextField(
             value = productPrice,
             onValueChange = { productPrice = it },
             label = { Text("Precio del producto") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         TextField(
             value = productQuantity,
             onValueChange = { productQuantity = it },
             label = { Text("Cantidad disponible") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         TextField(
             value = productDescription,
             onValueChange = { productDescription = it },
@@ -591,53 +712,165 @@ fun CreateProductScreen(navController: NavController, sellerId: String) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Seleccionar categoría
-        DropdownMenu(
-            expanded = true,
-            onDismissRequest = { /* Manejar cierre */ }
+        // Dropdown para seleccionar categoría
+        CategoryDropdownMenu(
+            categories = categories,
+            selectedCategory = selectedCategory,
+            onCategorySelected = { selectedCategory = it }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                if (productName.isNotBlank() && productPrice.isNotBlank() && productQuantity.isNotBlank() && selectedCategory.isNotBlank()) {
+                    isLoading = true
+                    saveProductToFirestore(
+                        name = productName,
+                        price = productPrice.toDoubleOrNull() ?: 0.0,
+                        quantity = productQuantity.toIntOrNull() ?: 0,
+                        description = productDescription,
+                        category = selectedCategory,
+                        sellerId = sellerId,
+                        context = context,
+                        navController = navController,
+                        onComplete = { isLoading = false }
+                    )
+                } else {
+                    Toast.makeText(context, "Por favor, completa todos los campos", Toast.LENGTH_SHORT).show()
+                }
+            },
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            categories.forEach { category ->
-                DropdownMenuItem(
-                    onClick = { selectedCategory = category },
-                    text = { Text(category) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Botón para seleccionar imagen
-        Button(onClick = { imagePickerLauncher.launch("image/*") }) {
-            Text("Seleccionar Imagen")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Mostrar la imagen seleccionada (si existe)
-        selectedImageUri?.let { uri ->
-            Text("Imagen seleccionada: $uri", style = MaterialTheme.typography.bodySmall)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Botón para guardar producto
-        Button(onClick = {
-            uploadProduct(
-                productName,
-                productPrice.toDoubleOrNull() ?: 0.0,
-                productQuantity.toIntOrNull() ?: 0,
-                productDescription,
-                selectedCategory,
-                selectedImageUri,
-                sellerId,
-                context,
-                navController
-            )
-        }) {
-            Text("Guardar Producto")
+            Text(if (isLoading) "Cargando..." else "Guardar Producto")
         }
     }
 }
+
+
+
+@Composable
+fun BuyerProductListScreen(navController: NavController) {
+    val context = LocalContext.current
+    val products = remember { mutableStateListOf<Map<String, Any>>() }
+
+    // Cargar productos desde Firestore
+    LaunchedEffect(Unit) {
+        Firebase.firestore.collection("products").get()
+            .addOnSuccessListener { result ->
+                products.clear()
+                for (document in result) {
+                    document.data.let { products.add(it) }
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(context, "Error al cargar productos", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    // Mostrar lista de productos
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Lista de Productos", style = MaterialTheme.typography.headlineSmall)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn {
+            items(products) { product ->
+                ProductCard(product, navController)
+            }
+        }
+    }
+}
+
+
+@Composable
+fun ReserveProductScreen(navController: NavController, productId: String, buyerId: String) {
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Reservar Producto", style = MaterialTheme.typography.headlineSmall)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = {
+            reserveProduct(productId, buyerId, context, navController) // Parámetros corregidos
+        }) {
+            Text("Confirmar Reservación")
+        }
+    }
+}
+
+
+fun reserveProduct(
+    productId: String,
+    buyerId: String,
+    context: Context,
+    navController: NavController
+) {
+    val reservationId = UUID.randomUUID().toString()
+
+    val reservation = hashMapOf(
+        "id" to reservationId,
+        "product_id" to productId,
+        "buyer_id" to buyerId,
+        "reserved_at" to System.currentTimeMillis(),
+        "status" to "active"
+    )
+
+    Firebase.firestore.collection("reservations").document(reservationId).set(reservation)
+        .addOnSuccessListener {
+            Toast.makeText(context, "Producto reservado exitosamente", Toast.LENGTH_SHORT).show()
+            navController.navigate("buyer_dashboard")
+        }
+        .addOnFailureListener { e ->
+            Toast.makeText(context, "Error al reservar producto: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+}
+
+
+
+fun saveProductToFirestore(
+    name: String,
+    price: Double,
+    quantity: Int,
+    description: String,
+    category: String, // Asegúrate de incluir este parámetro
+    sellerId: String,
+    context: Context,
+    navController: NavController,
+    onComplete: () -> Unit
+) {
+    val productId = UUID.randomUUID().toString()
+
+    val product = hashMapOf(
+        "id" to productId,
+        "name" to name,
+        "price" to price,
+        "quantity" to quantity,
+        "description" to description,
+        "category" to category, // Guardar la categoría seleccionada
+        "seller_id" to sellerId,
+        "created_at" to System.currentTimeMillis()
+    )
+
+    Firebase.firestore.collection("products").document(productId).set(product)
+        .addOnSuccessListener {
+            onComplete()
+            Toast.makeText(context, "Producto creado exitosamente", Toast.LENGTH_SHORT).show()
+            navController.navigate("seller_dashboard")
+        }
+        .addOnFailureListener { e ->
+            onComplete()
+            Toast.makeText(context, "Error al guardar el producto: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+}
+
 
 
 
@@ -660,37 +893,66 @@ fun uploadProduct(
     }
 
     val storageRef = Firebase.storage.reference.child("products/${UUID.randomUUID()}.jpg")
-    val uploadTask = storageRef.putFile(imageUri)
 
-    uploadTask.addOnSuccessListener {
-        storageRef.downloadUrl.addOnSuccessListener { imageUrl ->
-            val product = hashMapOf(
-                "name" to name,
-                "price" to price,
-                "quantity" to quantity,
-                "description" to description,
-                "category_id" to category,
-                "image_url" to imageUrl.toString(),
-                "seller_id" to sellerId
-            )
+    try {
+        val contentResolver = context.contentResolver
+        val tempFile = File(context.cacheDir, "tempImage_${System.currentTimeMillis()}.jpg")
+        val outputStream = FileOutputStream(tempFile)
+        val inputStream = contentResolver.openInputStream(imageUri)
 
-            Firebase.firestore.collection("products").add(product).addOnSuccessListener {
-                Toast.makeText(context, "Producto creado exitosamente", Toast.LENGTH_SHORT).show()
-                // Navegar de regreso al dashboard del vendedor
-                if (context is MainActivity) {
-                    context.runOnUiThread {
-                        navController.navigate("seller_dashboard")
+        if (inputStream != null) {
+            inputStream.copyTo(outputStream)
+            outputStream.close()
+            inputStream.close()
+
+            // Subir archivo usando URI desde el archivo temporal
+            val tempUri = Uri.fromFile(tempFile)
+            storageRef.putFile(tempUri)
+                .addOnSuccessListener {
+                    storageRef.downloadUrl.addOnSuccessListener { imageUrl ->
+                        // Guardar los detalles del producto en Firestore
+                        val product = hashMapOf(
+                            "name" to name,
+                            "price" to price,
+                            "quantity" to quantity,
+                            "description" to description,
+                            "category_id" to category,
+                            "image_url" to imageUrl.toString(),
+                            "seller_id" to sellerId
+                        )
+
+                        Firebase.firestore.collection("products").add(product)
+                            .addOnSuccessListener {
+                                Toast.makeText(context, "Producto creado exitosamente", Toast.LENGTH_SHORT).show()
+                                navController.navigate("seller_dashboard")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("FirestoreError", "Error al guardar en Firestore: ${e.message}")
+                                Toast.makeText(context, "Error al guardar el producto: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
                     }
                 }
-            }.addOnFailureListener {
-                Toast.makeText(context, "Error al guardar el producto.", Toast.LENGTH_SHORT).show()
-            }
+                .addOnFailureListener { e ->
+                    Log.e("StorageError", "Error al subir la imagen: ${e.message}")
+                    Toast.makeText(context, "Error al subir la imagen: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            Toast.makeText(context, "No se pudo abrir la imagen seleccionada.", Toast.LENGTH_SHORT).show()
         }
-    }.addOnFailureListener {
-        Toast.makeText(context, "Error al subir la imagen.", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Log.e("UploadError", "Error procesando la imagen: ${e.message}")
+        Toast.makeText(context, "Error procesando la imagen: ${e.message}", Toast.LENGTH_SHORT).show()
     }
-
-
 }
+
+
+
+
+
+
+
+
+
+
 
 
