@@ -121,6 +121,7 @@ fun App() {
             val sellerId = backStackEntry.arguments?.getString("sellerId") ?: ""
             SellerReservationsScreen(navController, sellerId)
         }
+
     }
 
 
@@ -404,7 +405,7 @@ fun BuyerDashboard(navController: NavController) {
         Button(
             onClick = {
                 Firebase.auth.signOut()
-                navController.navigate("login")
+                navController.navigate("user_selection")
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -522,7 +523,7 @@ fun SellerDashboard(navController: NavController) {
             Button(
                 onClick = {
                     Firebase.auth.signOut()
-                    navController.navigate("login")
+                    navController.navigate("user_selection")
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
