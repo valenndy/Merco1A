@@ -39,7 +39,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.merco1.ui.theme.MERCO1Theme
 import com.example.merco1.viewmodel.SignupViewModel
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
@@ -113,6 +116,10 @@ fun App() {
             val productId = backStackEntry.arguments?.getString("productId") ?: ""
             val buyerId = backStackEntry.arguments?.getString("buyerId") ?: ""
             ReserveProductScreen(navController = navController, productId = productId, buyerId = buyerId)
+        }
+        composable("seller_reservations/{sellerId}") { backStackEntry ->
+            val sellerId = backStackEntry.arguments?.getString("sellerId") ?: ""
+            SellerReservationsScreen(navController, sellerId)
         }
     }
 
@@ -525,31 +532,50 @@ fun SellerDashboard(navController: NavController) {
     }
 }
 
+//NO SE VISUALIZAN LAS RESERVACIONES CREADAS POR EL VENDEDOR!!!!!!!!!!!
 @Composable
 fun SellerReservationsScreen(navController: NavController, sellerId: String) {
     val context = LocalContext.current
     val reservations = remember { mutableStateListOf<Map<String, Any>>() }
 
+
+    // Verifica que el sellerId no esté vacío
     LaunchedEffect(sellerId) {
         if (sellerId.isNotBlank()) {
-            Firebase.firestore.collection("reservations")
-                .whereEqualTo("seller_id", sellerId)
-                .get()
-                .addOnSuccessListener { result ->
-                    reservations.clear()
-                    for (document in result) {
-                        reservations.add(document.data)
+            try {
+                Firebase.firestore.collection("reservations")
+                    .whereEqualTo("seller_id", sellerId) // Filtro por sellerId
+                    .get()
+                    .addOnSuccessListener { result ->
+                        Log.d("SellerReservations", "Número de reservaciones: ${result.size()}")
+
+                        // Limpiar la lista antes de agregar los nuevos resultados
+                        reservations.clear()
+
+                        if (result.isEmpty) {
+                            Log.d("SellerReservations", "No hay reservaciones para este vendedor")
+                        } else {
+                            // Agregar los documentos recuperados
+                            for (document in result) {
+                                reservations.add(document.data) // Agregar el dato completo del documento
+                            }
+                        }
                     }
-                }
-                .addOnFailureListener { e ->
-                    Log.e("FirestoreError", "Error al cargar reservaciones: ${e.message}")
-                    Toast.makeText(context, "Error al cargar reservaciones", Toast.LENGTH_SHORT).show()
-                }
+                    .addOnFailureListener { e ->
+                        Log.e("FirestoreError", "Error al cargar reservaciones: ${e.message}")
+                        Toast.makeText(context, "Error al cargar reservaciones: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error inesperado: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         } else {
-            Toast.makeText(context, "Error: ID del vendedor no válido", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "ID del vendedor no válido.", Toast.LENGTH_SHORT).show()
         }
+        Log.d("seller_id",sellerId )
+
     }
 
+    // Componente de la interfaz de usuario
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -559,18 +585,21 @@ fun SellerReservationsScreen(navController: NavController, sellerId: String) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Verificar si no hay reservas y mostrar el mensaje correspondiente
         if (reservations.isEmpty()) {
             Text("No hay reservaciones disponibles", style = MaterialTheme.typography.bodyLarge)
         } else {
+            // Mostrar las reservas en una lista
             LazyColumn {
                 items(reservations) { reservation ->
-                    ReservationCard(reservation)
+                    ReservationCard(reservation) // un composable para mostrar la reservación
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Botón para regresar al panel del vendedor
         Button(
             onClick = { navController.navigate("seller_dashboard") },
             modifier = Modifier.fillMaxWidth()
@@ -579,6 +608,7 @@ fun SellerReservationsScreen(navController: NavController, sellerId: String) {
         }
     }
 }
+
 
 
 @Composable
@@ -807,31 +837,53 @@ fun ReserveProductScreen(navController: NavController, productId: String, buyerI
 }
 
 
-fun reserveProduct(
-    productId: String,
-    buyerId: String,
-    context: Context,
-    navController: NavController
-) {
-    val reservationId = UUID.randomUUID().toString()
+fun reserveProduct(productId: String, buyerId: String, context: Context, navController: NavController) {
+    // Obtener el seller_id del producto
+    Firebase.firestore.collection("products")
+        .document(productId)
+        .get()
+        .addOnSuccessListener { productDocument ->
+            if (productDocument.exists()) {
+                // Extraer el seller_id del documento del producto
+                val sellerId = productDocument.getString("seller_id")
 
-    val reservation = hashMapOf(
-        "id" to reservationId,
-        "product_id" to productId,
-        "buyer_id" to buyerId,
-        "reserved_at" to System.currentTimeMillis(),
-        "status" to "active"
-    )
+                // Verificar que el seller_id exista
+                if (sellerId != null) {
+                    // Crear el documento de la reservación con el seller_id correcto
+                    val reservationData = mapOf(
+                        "buyer_id" to buyerId,
+                        "product_id" to productId,
+                        "seller_id" to sellerId, // Aquí se usa el seller_id obtenido del producto
+                        "reservation_time" to System.currentTimeMillis()
+                    )
 
-    Firebase.firestore.collection("reservations").document(reservationId).set(reservation)
-        .addOnSuccessListener {
-            Toast.makeText(context, "Producto reservado exitosamente", Toast.LENGTH_SHORT).show()
-            navController.navigate("buyer_dashboard")
+                    // Guardar la reservación en la colección "reservations"
+                    Firebase.firestore.collection("reservations")
+                        .add(reservationData)
+                        .addOnSuccessListener { reservationDocument ->
+                            // La reserva se ha creado con éxito
+                            Log.d("ReserveProduct", "Reserva creada con éxito: ${reservationDocument.id}")
+                            navController.navigate("buyer_dashboard")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("ReserveProductError", "Error al crear la reserva: ${e.message}")
+                            Toast.makeText(context, "Error al crear la reserva: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                } else {
+                    // Si no se encuentra el seller_id en el producto
+                    Toast.makeText(context, "No se encontró el vendedor para este producto.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // El producto no existe
+                Toast.makeText(context, "Producto no encontrado.", Toast.LENGTH_SHORT).show()
+            }
         }
         .addOnFailureListener { e ->
-            Toast.makeText(context, "Error al reservar producto: ${e.message}", Toast.LENGTH_SHORT).show()
+            // Error al obtener el producto
+            Toast.makeText(context, "Error al obtener el producto: ${e.message}", Toast.LENGTH_SHORT).show()
         }
 }
+
 
 
 
